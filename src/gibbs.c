@@ -493,6 +493,8 @@ SEXP collapsedGibbsSampler(SEXP documents,
     SEXP trace_,
     SEXP freeze_topics_) {
   GetRNGstate();
+
+  printf("GCL: Beginning the collapsed gibbs sampling\n");
   // This is a long so that dd * K does not overflow
   long dd;
   int ii;
@@ -754,6 +756,7 @@ SEXP collapsedGibbsSampler(SEXP documents,
       error("Unable to allocate memory for document (%d) assignments", dd);
     }
 
+    //GCL: Checking documents to make sure the words are all valid. Initializing the assignment vector zs
     for (ww = 0; ww < nw; ++ww) {
       int word = INTEGER(document)[ww * 2];
       int count = INTEGER(document)[ww * 2 + 1];
@@ -805,6 +808,8 @@ SEXP collapsedGibbsSampler(SEXP documents,
       int nw = INTEGER(GET_DIM(document))[1];
       int nws=0; //Use sum of count of words in dv_update instead of number of unique words
       //This was only applied to sLDA & logical case in order to not cause any changes to the rest
+      
+      //GCL: The second row of the document matrix has the count of each word
       for (ww=0; ww<nw;ww++){
         nws+= INTEGER(document)[ww * 2 + 1];
       }
@@ -814,109 +819,109 @@ SEXP collapsedGibbsSampler(SEXP documents,
         initial_d = VECTOR_ELT(initial, dd);
         CHECKLEN(initial_d, Integer, nw);
       }
-      if (!isNull(net_annotations)) {
-        for (ww = 0; ww < nd; ++ww) {
-          if (ww == dd) {
-            continue;
-          }
+      //if (!isNull(net_annotations)) {
+      //  for (ww = 0; ww < nd; ++ww) {
+      //    if (ww == dd) {
+      //      continue;
+      //    }
 
-          int* z = &INTEGER(nassignments_left)[nd * dd + ww];
-          int* z2 = &INTEGER(nassignments_right)[nd * ww + dd];
-          int y = LOGICAL(net_annotations)[nd * dd + ww];
+      //    int* z = &INTEGER(nassignments_left)[nd * dd + ww];
+      //    int* z2 = &INTEGER(nassignments_right)[nd * ww + dd];
+      //    int y = LOGICAL(net_annotations)[nd * dd + ww];
 
-          if (*z != -1) {
-            if (*z2 == -1) {
-              error("Internal error (1).");
-            }
-            INTEGER(document_sums)[K * dd + *z]--;
-            INTEGER(document_sums)[K * ww + *z2]--;
-            if (y == 1) {
-              INTEGER(nbeta_one)[K * (*z) + (*z2)]--;
-            } else {
-              INTEGER(nbeta_zero)[K * (*z) + (*z2)]--;
-            }
-          } else if (*z2 != -1) {
-            error("Internal error (2).");
-          }
+      //    if (*z != -1) {
+      //      if (*z2 == -1) {
+      //        error("Internal error (1).");
+      //      }
+      //      INTEGER(document_sums)[K * dd + *z]--;
+      //      INTEGER(document_sums)[K * ww + *z2]--;
+      //      if (y == 1) {
+      //        INTEGER(nbeta_one)[K * (*z) + (*z2)]--;
+      //      } else {
+      //        INTEGER(nbeta_zero)[K * (*z) + (*z2)]--;
+      //      }
+      //    } else if (*z2 != -1) {
+      //      error("Internal error (2).");
+      //    }
 
-          double p_sum = 0.0;
-          int jj;
-          for (ii = 0; ii < K; ++ii) {
-            for (jj = 0; jj < K; ++jj) {
-              if (*z == -1) {
-                if (initial_net_left != NULL && initial_net_right != NULL){
-                  if ((ii == INTEGER(initial_net_left)[nd * dd + ww]) && (jj == INTEGER(initial_net_right)[nd * dd + ww])){
-                    //REprintf("Not null!!!!! %d\n", INTEGER(initial_net_left)[nd * dd + ww]);
-                    p_pair[ii * K + jj] = 1.0;
-                  } else {
-                    p_pair[ii * K + jj] = 0.0;
-                  }
-                } else {
-                  p_pair[ii * K + jj] = 1.0;
-                }
+      //    double p_sum = 0.0;
+      //    int jj;
+      //    for (ii = 0; ii < K; ++ii) {
+      //      for (jj = 0; jj < K; ++jj) {
+      //        if (*z == -1) {
+      //          if (initial_net_left != NULL && initial_net_right != NULL){
+      //            if ((ii == INTEGER(initial_net_left)[nd * dd + ww]) && (jj == INTEGER(initial_net_right)[nd * dd + ww])){
+      //              //REprintf("Not null!!!!! %d\n", INTEGER(initial_net_left)[nd * dd + ww]);
+      //              p_pair[ii * K + jj] = 1.0;
+      //            } else {
+      //              p_pair[ii * K + jj] = 0.0;
+      //            }
+      //          } else {
+      //            p_pair[ii * K + jj] = 1.0;
+      //          }
 
-              } else {
-                p_pair[ii * K + jj] = (INTEGER(document_sums)[K * dd + ii] + alpha)*
-                  (INTEGER(document_sums)[K * ww + jj] + alpha);
-                if (y == 1) {
-                  p_pair[ii * K + jj] *= INTEGER(nbeta_one)[ii * K + jj] +
-                    REAL(VECTOR_ELT(nbeta, 1))[ii * K + jj];
-                } else if (y == 0) {
-                  p_pair[ii * K + jj] *= INTEGER(nbeta_zero)[ii * K + jj] +
-                    REAL(VECTOR_ELT(nbeta, 0))[ii * K + jj];
-                } else {
-                  error("What the hell happened?");
-                }
-                p_pair[ii * K + jj] /= INTEGER(nbeta_one)[ii * K + jj] +
-                  INTEGER(nbeta_zero)[ii * K + jj] +
-                  REAL(VECTOR_ELT(nbeta, 0))[ii * K + jj] +
-                  REAL(VECTOR_ELT(nbeta, 1))[ii * K + jj];
-              }
-              if (p_pair[ii * K + jj] < 0) {
-                error("What the WHAT?! (%d, %d)",
-                    INTEGER(nbeta_one)[ii * K + jj],
-                    INTEGER(nbeta_zero)[ii * K + jj]);
-              }
-              p_sum += p_pair[ii * K + jj];
-            }
-          }
+      //        } else {
+      //          p_pair[ii * K + jj] = (INTEGER(document_sums)[K * dd + ii] + alpha)*
+      //            (INTEGER(document_sums)[K * ww + jj] + alpha);
+      //          if (y == 1) {
+      //            p_pair[ii * K + jj] *= INTEGER(nbeta_one)[ii * K + jj] +
+      //              REAL(VECTOR_ELT(nbeta, 1))[ii * K + jj];
+      //          } else if (y == 0) {
+      //            p_pair[ii * K + jj] *= INTEGER(nbeta_zero)[ii * K + jj] +
+      //              REAL(VECTOR_ELT(nbeta, 0))[ii * K + jj];
+      //          } else {
+      //            error("What the hell happened?");
+      //          }
+      //          p_pair[ii * K + jj] /= INTEGER(nbeta_one)[ii * K + jj] +
+      //            INTEGER(nbeta_zero)[ii * K + jj] +
+      //            REAL(VECTOR_ELT(nbeta, 0))[ii * K + jj] +
+      //            REAL(VECTOR_ELT(nbeta, 1))[ii * K + jj];
+      //        }
+      //        if (p_pair[ii * K + jj] < 0) {
+      //          error("What the WHAT?! (%d, %d)",
+      //              INTEGER(nbeta_one)[ii * K + jj],
+      //              INTEGER(nbeta_zero)[ii * K + jj]);
+      //        }
+      //        p_sum += p_pair[ii * K + jj];
+      //      }
+      //    }
 
-          *z = -1;
-          *z2 = -1;
-          double r = unif_rand();
-          double r_orig = r;
-          for (ii = 0; ii < K; ++ii) {
-            for (jj = 0; jj < K; ++jj) {
-              if (r < p_pair[ii * K + jj] / p_sum) {
-                *z = ii;
-                *z2 = jj;
-                ii = jj = K;
-                break;
-              }
-              r -= p_pair[ii * K + jj] / p_sum;
-            }
-          }
-          if (*z == -1 || *z2 == -1) {
-            error("The laws of science be a harsh mistress "
-                "(%d, %d, %g, %g, %g).",
-                *z, *z2, r_orig, r, p_sum);
-          }
+      //    *z = -1;
+      //    *z2 = -1;
+      //    double r = unif_rand();
+      //    double r_orig = r;
+      //    for (ii = 0; ii < K; ++ii) {
+      //      for (jj = 0; jj < K; ++jj) {
+      //        if (r < p_pair[ii * K + jj] / p_sum) {
+      //          *z = ii;
+      //          *z2 = jj;
+      //          ii = jj = K;
+      //          break;
+      //        }
+      //        r -= p_pair[ii * K + jj] / p_sum;
+      //      }
+      //    }
+      //    if (*z == -1 || *z2 == -1) {
+      //      error("The laws of science be a harsh mistress "
+      //          "(%d, %d, %g, %g, %g).",
+      //          *z, *z2, r_orig, r, p_sum);
+      //    }
 
-          INTEGER(document_sums)[K * dd + *z]++;
-          INTEGER(document_sums)[K * ww + *z2]++;
+      //    INTEGER(document_sums)[K * dd + *z]++;
+      //    INTEGER(document_sums)[K * ww + *z2]++;
 
-          if (burnin > -1 && iteration >= burnin) {
-            INTEGER(document_expects)[K * dd + *z]++;
-            INTEGER(document_expects)[K * ww + *z2]++;
-          }
+      //    if (burnin > -1 && iteration >= burnin) {
+      //      INTEGER(document_expects)[K * dd + *z]++;
+      //      INTEGER(document_expects)[K * ww + *z2]++;
+      //    }
 
-          if (y == 1) {
-            INTEGER(nbeta_one)[K * (*z) + (*z2)]++;
-          } else {
-            INTEGER(nbeta_zero)[K * (*z) + (*z2)]++;
-          }
-        }
-      }
+      //    if (y == 1) {
+      //      INTEGER(nbeta_one)[K * (*z) + (*z2)]++;
+      //    } else {
+      //      INTEGER(nbeta_zero)[K * (*z) + (*z2)]++;
+      //    }
+      //  }
+      //}
 
       int* topics_p = INTEGER(topics);
       int* topic_sums_p = INTEGER(topic_sums);
@@ -960,29 +965,28 @@ SEXP collapsedGibbsSampler(SEXP documents,
           document_k = &document_sums_p[K * dd + *z];
           *document_k -= count;
 
-          if (has_annotations) {
-            if (method == prodLDA) {
-              wx2[*z] -= count * REAL(annotations)[dd] * REAL(annotations)[dd];
-              wx[*z] -= count * REAL(annotations)[dd];
-            } else if(method==sLDA && logistic) {
-              int cn;
-              for (cn=0; cn<classN;cn++){
-                dv[dd+cn*nd] += count * dv_update(annotations, dd, REAL(beta)[*z + cn*K],
-                    var, nws, method, logistic);
-              }
-            }
-            else {
-              dv[dd] += count * dv_update(annotations, dd, REAL(beta)[*z],
-                  var, nw, method, logistic);
-            }
-          }
+          //if (has_annotations) {
+          //  if (method == prodLDA) {
+          //    wx2[*z] -= count * REAL(annotations)[dd] * REAL(annotations)[dd];
+          //    wx[*z] -= count * REAL(annotations)[dd];
+          //  } else if(method==sLDA && logistic) {
+          //    int cn;
+          //    for (cn=0; cn<classN;cn++){
+          //      dv[dd+cn*nd] += count * dv_update(annotations, dd, REAL(beta)[*z + cn*K],
+          //          var, nws, method, logistic);
+          //    }
+          //  }
+          //  else {
+          //    dv[dd] += count * dv_update(annotations, dd, REAL(beta)[*z],
+          //        var, nw, method, logistic);
+          //  }
+          //}
 
           if (*topic_wk < 0 || *topic_k < 0 || *document_k < 0) {
             error("Counts became negative for word (%ld): (%d, %d, %d)",
                 word, *topic_wk, *topic_k, *document_k);
           }
-        }
-
+        } 
         double r = unif_rand();
         double p_sum = 0.0;
 
@@ -1003,58 +1007,59 @@ SEXP collapsedGibbsSampler(SEXP documents,
           }
         } else {
           for (kk = 0; kk < K; ++kk) {
+		  //GCL: This is the update line p(z = k | \cdot ) = (n_{d,k} + a_k)... from Darling's tutorial
             p[kk] = (document_sums_p[K * dd + kk] + alpha);
             p[kk] *= (topics_p[kk + K * word] + eta);
             p[kk] /= (topic_sums_p[kk + K * topic_index] + V * eta);
 
-            if (has_annotations) {
-              if (method == corrLDA) {
-                p[kk] *= dv_update(annotations, dd, REAL(beta)[kk],var, nw, method, logistic) - dv[dd];
-              } else if (method == sLDA) {
-                double change=0;
-                if (logistic) {
-                  int cn;
-                  sumcn=1.0;
-                  for (cn=0; cn<classN; cn++){
-                    change=REAL(beta)[kk + cn*K]/nws;
-                    sumcn += exp(change - dv[dd+cn*nd]);
-                  }
-                  double maxExp=0;
-                  if (!R_finite(sumcn)){
-                    for (cn=0; cn<classN; cn++){
-                      change=REAL(beta)[kk + cn*K]/nws;
-                      if ((change - dv[dd+cn*nd])>maxExp) maxExp=(change - dv[dd+cn*nd]);
-                    }
-                    sumcn=exp(0-maxExp);
-                    for (cn=0; cn<classN; cn++){
-                      change=REAL(beta)[kk + cn*K]/nws;
-                      sumcn += exp(change - dv[dd+cn*nd]-maxExp);
-                    }
-                  }
-                  int yv = INTEGER(annotations)[dd]-1;
-                  if (yv==-1) p[kk] *=exp(0-maxExp)/sumcn;
-                  else {
-                    change = REAL(beta)[kk + yv*K]/nws;
-                    p[kk] *= exp(change-dv[dd + yv*nd]-maxExp)/sumcn;
-                  }
-                } else {
-                  // How does this work?
-                  // dv[dd] = y - sum_{i != n} beta_{z_i} / N
-                  // change = beta_{z_n} / N
-                  // What we want to compute i:
-                  // exp(2 * change * (dv[dd]) - change^2)
-                  change = REAL(beta)[kk] / nw;
-                  p[kk] *= exp(change * (dv[dd] - change / 2) / var);
-                }
-              } else if (method == prodLDA) {
-                double x_d = REAL(annotations)[dd];
-                int n_k = topic_sums_p[kk + K * topic_index] + 1 + lambda;
-                p[kk] *= sqrt(n_k) *
-                  exp(-(wx2[kk] - wx2[0] - (wx[kk] + x_d)*(wx[kk] + x_d)/n_k + (wx[0] + x_d) * (wx[0] + x_d) / n_k) / (2 * var));
-              } else {
-                error("Not implemented.");
-              }
-            }
+            //if (has_annotations) {
+            //  if (method == corrLDA) {
+            //    p[kk] *= dv_update(annotations, dd, REAL(beta)[kk],var, nw, method, logistic) - dv[dd];
+            //  } else if (method == sLDA) {
+            //    double change=0;
+            //    if (logistic) {
+            //      int cn;
+            //      sumcn=1.0;
+            //      for (cn=0; cn<classN; cn++){
+            //        change=REAL(beta)[kk + cn*K]/nws;
+            //        sumcn += exp(change - dv[dd+cn*nd]);
+            //      }
+            //      double maxExp=0;
+            //      if (!R_finite(sumcn)){
+            //        for (cn=0; cn<classN; cn++){
+            //          change=REAL(beta)[kk + cn*K]/nws;
+            //          if ((change - dv[dd+cn*nd])>maxExp) maxExp=(change - dv[dd+cn*nd]);
+            //        }
+            //        sumcn=exp(0-maxExp);
+            //        for (cn=0; cn<classN; cn++){
+            //          change=REAL(beta)[kk + cn*K]/nws;
+            //          sumcn += exp(change - dv[dd+cn*nd]-maxExp);
+            //        }
+            //      }
+            //      int yv = INTEGER(annotations)[dd]-1;
+            //      if (yv==-1) p[kk] *=exp(0-maxExp)/sumcn;
+            //      else {
+            //        change = REAL(beta)[kk + yv*K]/nws;
+            //        p[kk] *= exp(change-dv[dd + yv*nd]-maxExp)/sumcn;
+            //      }
+            //    } else {
+            //      // How does this work?
+            //      // dv[dd] = y - sum_{i != n} beta_{z_i} / N
+            //      // change = beta_{z_n} / N
+            //      // What we want to compute i:
+            //      // exp(2 * change * (dv[dd]) - change^2)
+            //      change = REAL(beta)[kk] / nw;
+            //      p[kk] *= exp(change * (dv[dd] - change / 2) / var);
+            //    }
+            //  } else if (method == prodLDA) {
+            //    double x_d = REAL(annotations)[dd];
+            //    int n_k = topic_sums_p[kk + K * topic_index] + 1 + lambda;
+            //    p[kk] *= sqrt(n_k) *
+            //      exp(-(wx2[kk] - wx2[0] - (wx[kk] + x_d)*(wx[kk] + x_d)/n_k + (wx[0] + x_d) * (wx[0] + x_d) / n_k) / (2 * var));
+            //  } else {
+            //    error("Not implemented.");
+            //  }
+            //}
             p_sum += p[kk];
           }
         }
@@ -1070,6 +1075,7 @@ SEXP collapsedGibbsSampler(SEXP documents,
         }
 
         *z = -1;
+	//GCL: Now sample the topic from the conditional distribution
         for (kk = 0; kk < K; ++kk) {
           if (r < p[kk] / p_sum) {
             *z = kk;
@@ -1095,21 +1101,21 @@ SEXP collapsedGibbsSampler(SEXP documents,
           INTEGER(document_expects)[K * dd + *z] += count;
         }
 
-        if (has_annotations) {
-          if (method == prodLDA) {
-            wx2[*z] += count * REAL(annotations)[dd] * REAL(annotations)[dd];
-            wx[*z] += count * REAL(annotations)[dd];
-          } else if (method==sLDA && logistic) {
-            int cn;
-            for (cn=0; cn<classN;cn++){
-              dv[dd+cn*nd] -= count * dv_update(annotations, dd, REAL(beta)[*z + cn*K],
-                  var, nws, method, logistic);
-            }
-          } else {
-            dv[dd] -= count * dv_update(annotations, dd, REAL(beta)[*z],
-                var, nw, method, logistic);
-          }
-        }
+        //if (has_annotations) {
+        //  if (method == prodLDA) {
+        //    wx2[*z] += count * REAL(annotations)[dd] * REAL(annotations)[dd];
+        //    wx[*z] += count * REAL(annotations)[dd];
+        //  } else if (method==sLDA && logistic) {
+        //    int cn;
+        //    for (cn=0; cn<classN;cn++){
+        //      dv[dd+cn*nd] -= count * dv_update(annotations, dd, REAL(beta)[*z + cn*K],
+        //          var, nws, method, logistic);
+        //    }
+        //  } else {
+        //    dv[dd] -= count * dv_update(annotations, dd, REAL(beta)[*z],
+        //        var, nw, method, logistic);
+        //  }
+        //}
       }
     }
 
@@ -1142,6 +1148,8 @@ SEXP collapsedGibbsSampler(SEXP documents,
       REAL(log_likelihood)[2 * iteration + 1] = topic_ll - const_ll;
     }
   }
+
+  printf("GCL: finished iterations\n");
 
 
   PutRNGstate();

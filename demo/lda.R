@@ -1,3 +1,7 @@
+#GCL: After making changes to the C code
+#devtools::unload(); 
+#devtools::load_all()
+
 require("ggplot2")
 require("reshape2")
 data(cora.documents)
